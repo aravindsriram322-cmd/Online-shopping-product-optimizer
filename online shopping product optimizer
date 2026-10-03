@@ -1,0 +1,224 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import {
+  PRODUCTS, valueOf, knapsack, greedy, mergeSort, quickSort, binarySearchMaxPrice,
+  type Metric, type Product,
+} from "@/lib/algorithms";
+
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "CartWise — Online Shopping Product Optimizer" },
+      { name: "description", content: "Pick the best products under your budget using 0/1 Knapsack, Sorting and Binary Search — with every decision explained." },
+      { property: "og:title", content: "CartWise — Online Shopping Product Optimizer" },
+      { property: "og:description", content: "Budget-aware shopping assistant powered by 0/1 Knapsack, Sorting and Binary Search." },
+    ],
+  }),
+  component: Index,
+});
+
+const METRICS: { id: Metric; label: string }[] = [
+  { id: "combined", label: "Combined" },
+  { id: "rating", label: "Rating" },
+  { id: "utility", label: "Utility" },
+  { id: "discount", label: "Discount" },
+];
+
+const inr = (n: number) => "₹" + n.toLocaleString("en-IN");
+
+function Index() {
+  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [budget, setBudget] = useState(10000);
+  const [metric, setMetric] = useState<Metric>("combined");
+  const [searchPrice, setSearchPrice] = useState(2000);
+  const [form, setForm] = useState({ name: "", price: "", rating: "", utility: "", discount: "" });
+  const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+
+  const runSearch = () => setAppliedQuery(query.trim().toLowerCase());
+  const visibleProducts = appliedQuery
+    ? products.filter((p) => p.name.toLowerCase().includes(appliedQuery) || p.category.toLowerCase().includes(appliedQuery))
+    : products;
+
+  const ks = useMemo(() => knapsack(products, budget, metric), [products, budget, metric]);
+  const gr = useMemo(() => greedy(products, budget, metric), [products, budget, metric]);
+  const ms = useMemo(() => mergeSort(products, (p) => p.price), [products]);
+  const qs = useMemo(() => quickSort(products, (p) => p.price), [products]);
+  const bs = useMemo(() => binarySearchMaxPrice(ms.sorted, searchPrice), [ms, searchPrice]);
+  const selectedIds = new Set(ks.selected.map((p) => p.id));
+
+  const addProduct = () => {
+    const price = Number(form.price);
+    if (!form.name.trim() || !(price > 0)) return;
+    setProducts((ps) => [...ps, {
+      id: Date.now(), name: form.name.trim(), category: "Custom", price,
+      rating: Math.min(5, Number(form.rating) || 4), utility: Math.min(10, Number(form.utility) || 5),
+      discount: Math.min(90, Number(form.discount) || 0),
+    }]);
+    setForm({ name: "", price: "", rating: "", utility: "", discount: "" });
+  };
+
+  return (
+    <main className="min-h-screen">
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-14">
+          <p className="kicker">DAA Hackathon · Online Shopping Product Optimizer</p>
+          <h1 className="font-display mt-4 text-5xl md:text-7xl font-bold leading-[0.95] tracking-tight">
+            Spend <span className="text-primary">smart.</span><br />Every rupee, optimised.
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
+            CartWise picks the best combination of products under your budget using
+            <b className="text-foreground"> 0/1 Knapsack</b>, ranks them with <b className="text-foreground">Sorting</b>,
+            and finds price matches with <b className="text-foreground">Binary Search</b> — showing every decision.
+          </p>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-6xl px-6 py-10 space-y-10">
+        {/* Controls */}
+        <section className="panel grid gap-6 md:grid-cols-2">
+          <div>
+            <label className="kicker">Budget: {inr(budget)}</label>
+            <input type="range" min={1000} max={30000} step={500} value={budget}
+              onChange={(e) => setBudget(Number(e.target.value))} className="mt-3 w-full accent-primary" />
+          </div>
+          <div>
+            <span className="kicker">Maximise by</span>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {METRICS.map((m) => (
+                <button key={m.id} onClick={() => setMetric(m.id)}
+                  className={metric === m.id ? "chip chip-active" : "chip"}>{m.label}</button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Result */}
+        <section className="grid gap-4 md:grid-cols-4">
+          <Stat label="Total value" value={String(ks.totalValue)} accent />
+          <Stat label="Spent" value={inr(ks.totalCost)} />
+          <Stat label="Left over" value={inr(budget - ks.totalCost)} />
+          <Stat label="DP cells filled" value={ks.cells.toLocaleString()} sub={`${ks.ms.toFixed(2)} ms`} />
+        </section>
+
+        {/* Products */}
+        <section className="panel">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="font-display text-2xl font-bold">1 · 0/1 Knapsack selection</h2>
+            <div className="flex items-center gap-2">
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && runSearch()}
+                placeholder="Search product…" className="field w-56" aria-label="Search product" />
+              <button onClick={runSearch} className="btn-primary">🔍 Search</button>
+              {appliedQuery && (
+                <button onClick={() => { setQuery(""); setAppliedQuery(""); }}
+                  className="chip">Clear</button>
+              )}
+            </div>
+          </div>
+          {appliedQuery && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Showing {visibleProducts.length} of {products.length} products matching “{appliedQuery}”.
+            </p>
+          )}
+          <p className="mt-1 text-sm text-muted-foreground">Each product is either taken (1) or skipped (0). Highlighted rows form the optimal basket.</p>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-muted-foreground">
+                <tr><th className="py-2">Pick</th><th>Product</th><th>Price</th><th>Rating</th><th>Utility</th><th>Discount</th><th>Value</th><th /></tr>
+              </thead>
+              <tbody>
+                {visibleProducts.map((p) => {
+                  const on = selectedIds.has(p.id);
+                  return (
+                    <tr key={p.id} className={on ? "row-on" : "border-t border-border"}>
+                      <td className="py-2 font-mono font-bold">{on ? "1" : "0"}</td>
+                      <td className="font-medium">{p.name}</td>
+                      <td>{inr(p.price)}</td><td>{p.rating}</td><td>{p.utility}/10</td><td>{p.discount}%</td>
+                      <td className="font-mono">{valueOf(p, metric)}</td>
+                      <td><button onClick={() => setProducts((ps) => ps.filter((x) => x.id !== p.id))}
+                        className="text-muted-foreground hover:text-destructive">✕</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-5 grid gap-2 md:grid-cols-6">
+            {(["name", "price", "rating", "utility", "discount"] as const).map((k) => (
+              <input key={k} placeholder={k} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="field" />
+            ))}
+            <button onClick={addProduct} className="btn-primary">Add product</button>
+          </div>
+        </section>
+
+        {/* Compare */}
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="panel">
+            <p className="kicker">Optimal · Dynamic Programming</p>
+            <p className="font-display mt-2 text-4xl font-bold text-primary">{ks.totalValue}</p>
+            <p className="text-sm text-muted-foreground">{inr(ks.totalCost)} · O(n·W)</p>
+            <ul className="mt-3 text-sm space-y-1">{ks.selected.map((p) => <li key={p.id}>✓ {p.name}</li>)}</ul>
+          </div>
+          <div className="panel">
+            <p className="kicker">Heuristic · Greedy by value/price</p>
+            <p className="font-display mt-2 text-4xl font-bold">{gr.totalValue}</p>
+            <p className="text-sm text-muted-foreground">{inr(gr.totalCost)} · O(n log n)</p>
+            <ul className="mt-3 text-sm space-y-1">{gr.selected.map((p) => <li key={p.id}>• {p.name}</li>)}</ul>
+            <p className="mt-3 text-sm font-medium">
+              {gr.totalValue < ks.totalValue
+                ? `Greedy loses ${ks.totalValue - gr.totalValue} value points — why DP matters.`
+                : "Greedy matched the optimum this time."}
+            </p>
+          </div>
+        </section>
+
+        {/* Sorting */}
+        <section className="panel">
+          <h2 className="font-display text-2xl font-bold">2 · Sorting by price</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Stat label="Merge Sort comparisons" value={String(ms.comparisons)} sub={`${ms.ms.toFixed(3)} ms · O(n log n) stable`} />
+            <Stat label="Quick Sort comparisons" value={String(qs.comparisons)} sub={`${qs.ms.toFixed(3)} ms · avg O(n log n)`} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {ms.sorted.map((p, i) => (
+              <span key={p.id} className="chip">{i}: {p.name} · {inr(p.price)}</span>
+            ))}
+          </div>
+        </section>
+
+        {/* Binary search */}
+        <section className="panel">
+          <h2 className="font-display text-2xl font-bold">3 · Binary Search — best product within a price</h2>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm">Max price</span>
+            <input type="number" value={searchPrice} onChange={(e) => setSearchPrice(Number(e.target.value))} className="field w-40" />
+            <span className="text-sm text-muted-foreground">{bs.steps.length} steps (linear would need up to {ms.sorted.length})</span>
+          </div>
+          <ol className="mt-4 space-y-2 font-mono text-sm">
+            {bs.steps.map((s, i) => (
+              <li key={i} className="step">Step {i + 1}: lo={s.lo}, hi={s.hi}, mid={s.mid} → {s.decision}</li>
+            ))}
+          </ol>
+          <p className="mt-4 font-medium">
+            {bs.index >= 0
+              ? <>Result: <span className="text-primary">{ms.sorted[bs.index]!.name}</span> at {inr(ms.sorted[bs.index]!.price)}</>
+              : "No product at or under that price."}
+          </p>
+        </section>
+
+        <footer className="py-8 text-center text-sm text-muted-foreground">CartWise · 0/1 Knapsack · Sorting · Binary Search</footer>
+      </div>
+    </main>
+  );
+}
+
+function Stat({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+  return (
+    <div className={accent ? "panel panel-accent" : "panel"}>
+      <p className="kicker">{label}</p>
+      <p className="font-display mt-2 text-3xl font-bold">{value}</p>
+      {sub && <p className="mt-1 text-xs opacity-70">{sub}</p>}
+    </div>
+  );
+}
